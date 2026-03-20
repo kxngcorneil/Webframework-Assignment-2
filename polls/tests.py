@@ -33,80 +33,93 @@ class QuestionIndexViewTests(TestCase):
         # Small helper so index-page requests are consistent across tests.
         return self.client.get(reverse("polls:index"))
 
-    def _assert_index_questions(self, expected_questions):
-        response = self._get_index()
-        self.assertEqual(response.status_code, 200)
-        self.assertQuerySetEqual(response.context["latest_question_list"], expected_questions)
-        return response
-
     def test_no_questions(self):
         # With no data, the page should show the empty-state message.
-        response = self._assert_index_questions([])
+        response = self._get_index()
+        self.assertEqual(response.status_code, 200)
         self.assertContains(response, "No polls are available.")
+        self.assertQuerySetEqual(response.context["latest_question_list"], [])
 
     def test_past_question(self):
         # Questions from the past should appear in the list.
-        question = create_question("Past question.", -30)
-        self._assert_index_questions([question])
+        question = create_question(question_text="Past question.", days=-30)
+        response = self._get_index()
+        self.assertQuerySetEqual(
+            response.context["latest_question_list"],
+            [question],
+        )
 
     def test_future_question(self):
         # Questions scheduled in the future should not be shown yet.
-        create_question("Future question.", 30)
-        response = self._assert_index_questions([])
+        create_question(question_text="Future question.", days=30)
+        response = self._get_index()
         self.assertContains(response, "No polls are available.")
+        self.assertQuerySetEqual(response.context["latest_question_list"], [])
 
     def test_future_question_and_past_question(self):
         # If both exist, only already-published questions should be visible.
-        question = create_question("Past question.", -30)
-        create_question("Future question.", 30)
-        self._assert_index_questions([question])
+        question = create_question(question_text="Past question.", days=-30)
+        create_question(question_text="Future question.", days=30)
+        response = self._get_index()
+        self.assertQuerySetEqual(
+            response.context["latest_question_list"],
+            [question],
+        )
 
     def test_two_past_questions(self):
         # Multiple past questions should be sorted newest first.
-        question1 = create_question("Past question 1.", -30)
-        question2 = create_question("Past question 2.", -5)
-        self._assert_index_questions([question2, question1])
+        question1 = create_question(question_text="Past question 1.", days=-30)
+        question2 = create_question(question_text="Past question 2.", days=-5)
+        response = self._get_index()
+        self.assertQuerySetEqual(
+            response.context["latest_question_list"],
+            [question2, question1],
+        )
 
 
 class QuestionDetailViewTests(TestCase):
-    def _get_detail(self, question):
-        return self.client.get(reverse("polls:detail", args=(question.id,)))
-
     def test_future_question(self):
-        future_question = create_question("Future question.", 5)
-        response = self._get_detail(future_question)
+        # Future questions are hidden from the detail view.
+        future_question = create_question(question_text="Future question.", days=5)
+        url = reverse("polls:detail", args=(future_question.id,))
+        response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
 
     def test_past_question(self):
         # A published question should render its detail page content.
-        past_question = create_question("Past Question.", -5)
-        response = self._get_detail(past_question)
+        past_question = create_question(question_text="Past Question.", days=-5)
+        url = reverse("polls:detail", args=(past_question.id,))
+        response = self.client.get(url)
         self.assertContains(response, past_question.question_text)
 
 
 class AnimalTestCase(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.lion = Animal.objects.create(name="lion", sound="roar")
-        cls.cat = Animal.objects.create(name="cat", sound="meow")
+    def setUp(self):
+        Animal.objects.create(name="lion", sound="roar")
+        Animal.objects.create(name="cat", sound="meow")
 
     def test_animals_can_speak(self):
         # Checks that the model method returns the expected formatted sentence.
-        self.assertEqual(self.lion.speak(), 'The lion says "roar"')
-        self.assertEqual(self.cat.speak(), 'The cat says "meow"')
+        lion = Animal.objects.get(name="lion")
+        cat = Animal.objects.get(name="cat")
+        self.assertEqual(lion.speak(), 'The lion says "roar"')
+        self.assertEqual(cat.speak(), 'The cat says "meow"')
 
 
 class PollsURLSimpleTests(SimpleTestCase):
     # SimpleTestCase: no database access, just URL wiring checks.
     def test_index_url_resolves_to_named_view(self):
+        # Verifies that the index URL maps to the expected named route.
         url = reverse("polls:index")
         match = resolve(url)
         self.assertEqual(match.view_name, "polls:index")
 
 
 class VoteTransactionTests(TransactionTestCase):
+    # TransactionTestCase: exercise a DB write path that commits data.
     def test_vote_view_increments_vote_count(self):
-        question = create_question("Transactional vote test.", -1)
+        # Submitting a vote should redirect and increment the selected choice.
+        question = create_question(question_text="Transactional vote test.", days=-1)
         choice = Choice.objects.create(question=question, choice_text="Yes", votes=0)
 
         response = self.client.post(
@@ -120,7 +133,9 @@ class VoteTransactionTests(TransactionTestCase):
 
 
 class PollsLiveServerTests(LiveServerTestCase):
+    # LiveServerTestCase: hit a real HTTP endpoint served by Django test server.
     def test_live_server_serves_index_page(self):
+        # Makes a real HTTP request and checks the index page response/content.
         response = urlopen(f"{self.live_server_url}{reverse('polls:index')}")
         body = response.read().decode("utf-8")
         self.assertEqual(response.getcode(), 200)

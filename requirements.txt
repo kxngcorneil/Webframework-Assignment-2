@@ -1,0 +1,2 @@
+# Main Django framework used by this project on Vercel.
+Django==6.0.2

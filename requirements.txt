@@ -1,4 +1,4 @@
 Django==6.0.2
 gunicorn==23.0.0
 dj-database-url==2.3.0
-psycopg[binary]==3.2.9
+psycopg[binary]==3.2.13
